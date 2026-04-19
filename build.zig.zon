@@ -1,0 +1,13 @@
+.{
+    .name = .zig_virtual,
+    .version = "0.1.0",
+    .dependencies = .{
+        .inflection = .{
+            .url = "git+https://github.com/brodeuralexis/zig-inflection?ref=v1.0.0#b409c97c3d89c149cb9be35236d22fd501405833",
+            .hash = "inflection-1.0.0-KfDgGX9pAADkz7PkydCJIYDhrhqy1FmuUyiQ2Vvfjb7k",
+        },
+    },
+    .minimum_zig_version = "0.15.0",
+    .paths = .{ "src/", "build.zig", "build.zig.zon", "LICENSE", "README.md" },
+    .fingerprint = 0x43287bef5e1ecf31,
+}
