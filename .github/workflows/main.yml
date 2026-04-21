@@ -1,0 +1,24 @@
+name: main
+on:
+  push:
+  pull_request:
+jobs:
+  test:
+    strategy:
+      matrix:
+        optimize: [ Debug, ReleaseSmall, ReleaseSafe, ReleaseFast ]
+        version: [ "0.15.0", "0.15.2", "0.16.0", "master" ]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: mlugg/setup-zig@v2
+        with:
+          cache-key: ${{ matrix.optimize }}
+          version: ${{ matrix.version }}
+      - run: zig build test -Doptimize=${{ matrix.optimize }}
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: mlugg/setup-zig@v2
+      - run: zig fmt --check .
