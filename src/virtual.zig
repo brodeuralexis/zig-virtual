@@ -1,13 +1,23 @@
+//! A library of helpers for dealing with virtual method calls in Zig.
+
 const std = @import("std");
 const inflection = @import("inflection");
 
-const wrap = @import("wrap.zig").wrap;
-
+/// The kind of virtual table to build.
 pub const VTableKind = union(enum) {
+    /// The virtual table is part of a fat pointer, where the first arguments of
+    /// methods is an `anyopaque` pointer.
     fat_pointer: void,
+    /// The virtual table is part of a polymorphic type and embedded as a field
+    /// in the implementing type.
+    ///
+    /// This encodes the name of the field on the implementing type containg
+    /// the polymorhic interface.
     field_parent_ptr: []const u8,
 };
 
+/// Creates a compile-time known `VTable` wrapping a type `T`, with `kind`
+/// describing the kind of virtual table we are dealing with.
 pub fn create(comptime VTable: type, comptime T: type, comptime kind: VTableKind) *const VTable {
     const static = struct {
         fn isConstMethod(comptime Method: type) bool {
@@ -86,16 +96,16 @@ test "vtable using a fat pointer" {
         vtable: *const VTable,
         ptr: *anyopaque,
 
-        pub const VTable = struct {
+        const VTable = struct {
             area: *const fn (*const anyopaque) f64,
             some_super_long_function_name: *const fn (*anyopaque, i32, [:0]const u8) anyerror!void,
         };
 
-        pub fn area(shape: @This()) f64 {
+        fn area(shape: @This()) f64 {
             return shape.vtable.area(shape.ptr);
         }
 
-        pub fn someSuperLongFunctionName(shape: @This(), i: i32, str: [:0]const u8) anyerror!void {
+        fn someSuperLongFunctionName(shape: @This(), i: i32, str: [:0]const u8) anyerror!void {
             return shape.vtable.some_super_long_function_name(shape.ptr, i, str);
         }
     };
@@ -103,18 +113,18 @@ test "vtable using a fat pointer" {
     const Circle = struct {
         radius: f64,
 
-        pub fn shape(circle: *@This()) Shape {
+        fn shape(circle: *@This()) Shape {
             return .{
                 .ptr = circle,
                 .vtable = create(Shape.VTable, @This(), .fat_pointer),
             };
         }
 
-        pub fn area(circle: *const @This()) f64 {
+        fn area(circle: *const @This()) f64 {
             return std.math.pi * circle.radius * circle.radius;
         }
 
-        pub fn someSuperLongFunctionName(circle: *@This(), i: i32, str: [:0]const u8) anyerror!void {
+        fn someSuperLongFunctionName(circle: *@This(), i: i32, str: [:0]const u8) anyerror!void {
             _ = circle;
 
             try std.testing.expectEqual(42, i);
@@ -144,16 +154,16 @@ test "vtable using field parent" {
 
         vtable: *const VTable,
 
-        pub const VTable = struct {
+        const VTable = struct {
             area: *const fn (*const Self) f64,
             some_super_long_function_name: *const fn (*Self, i32, [:0]const u8) anyerror!void,
         };
 
-        pub fn area(shape: *Self) f64 {
+        fn area(shape: *Self) f64 {
             return shape.vtable.area(shape);
         }
 
-        pub fn someSuperLongFunctionName(shape: *Self, i: i32, str: [:0]const u8) anyerror!void {
+        fn someSuperLongFunctionName(shape: *Self, i: i32, str: [:0]const u8) anyerror!void {
             return shape.vtable.some_super_long_function_name(shape, i, str);
         }
     };
@@ -162,11 +172,11 @@ test "vtable using field parent" {
         shape: Shape = .{ .vtable = create(Shape.VTable, @This(), .{ .field_parent_ptr = "shape" }) },
         radius: f64,
 
-        pub fn area(circle: *const @This()) f64 {
+        fn area(circle: *const @This()) f64 {
             return std.math.pi * circle.radius * circle.radius;
         }
 
-        pub fn someSuperLongFunctionName(circle: *@This(), i: i32, str: [:0]const u8) anyerror!void {
+        fn someSuperLongFunctionName(circle: *@This(), i: i32, str: [:0]const u8) anyerror!void {
             _ = circle;
 
             try std.testing.expectEqual(42, i);
@@ -188,4 +198,410 @@ test "vtable using field parent" {
         error.Expected,
         circle.shape.someSuperLongFunctionName(42, "Hello"),
     );
+}
+
+fn wrap(comptime Method: type, comptime function: anytype, comptime transform: anytype) Method {
+    const method_info = @typeInfo(Method).@"fn";
+
+    return switch (method_info.params.len) {
+        0 => struct {
+            fn wrapper() (method_info.return_type orelse void) {
+                return function();
+            }
+        },
+        1 => struct {
+            fn wrapper(
+                arg_0: method_info.params[0].type.?,
+            ) (method_info.return_type orelse void) {
+                return function(
+                    @call(.always_inline, transform, .{arg_0}),
+                );
+            }
+        },
+        2 => struct {
+            fn wrapper(
+                arg_0: method_info.params[0].type.?,
+                arg_1: method_info.params[1].type.?,
+            ) (method_info.return_type orelse void) {
+                return function(
+                    @call(.always_inline, transform, .{arg_0}),
+                    arg_1,
+                );
+            }
+        },
+        3 => struct {
+            fn wrapper(
+                arg_0: method_info.params[0].type.?,
+                arg_1: method_info.params[1].type.?,
+                arg_2: method_info.params[2].type.?,
+            ) (method_info.return_type orelse void) {
+                return function(
+                    @call(.always_inline, transform, .{arg_0}),
+                    arg_1,
+                    arg_2,
+                );
+            }
+        },
+        4 => struct {
+            fn wrapper(
+                arg_0: method_info.params[0].type.?,
+                arg_1: method_info.params[1].type.?,
+                arg_2: method_info.params[2].type.?,
+                arg_3: method_info.params[3].type.?,
+            ) (method_info.return_type orelse void) {
+                return function(
+                    @call(.always_inline, transform, .{arg_0}),
+                    arg_1,
+                    arg_2,
+                    arg_3,
+                );
+            }
+        },
+        5 => struct {
+            fn wrapper(
+                arg_0: method_info.params[0].type.?,
+                arg_1: method_info.params[1].type.?,
+                arg_2: method_info.params[2].type.?,
+                arg_3: method_info.params[3].type.?,
+                arg_4: method_info.params[4].type.?,
+            ) (method_info.return_type orelse void) {
+                return function(
+                    @call(.always_inline, transform, .{arg_0}),
+                    arg_1,
+                    arg_2,
+                    arg_3,
+                    arg_4,
+                );
+            }
+        },
+        6 => struct {
+            fn wrapper(
+                arg_0: method_info.params[0].type.?,
+                arg_1: method_info.params[1].type.?,
+                arg_2: method_info.params[2].type.?,
+                arg_3: method_info.params[3].type.?,
+                arg_4: method_info.params[4].type.?,
+                arg_5: method_info.params[5].type.?,
+            ) (method_info.return_type orelse void) {
+                return function(
+                    @call(.always_inline, transform, .{arg_0}),
+                    arg_1,
+                    arg_2,
+                    arg_3,
+                    arg_4,
+                    arg_5,
+                );
+            }
+        },
+        7 => struct {
+            fn wrapper(
+                arg_0: method_info.params[0].type.?,
+                arg_1: method_info.params[1].type.?,
+                arg_2: method_info.params[2].type.?,
+                arg_3: method_info.params[3].type.?,
+                arg_4: method_info.params[4].type.?,
+                arg_5: method_info.params[5].type.?,
+                arg_6: method_info.params[6].type.?,
+            ) (method_info.return_type orelse void) {
+                return function(
+                    @call(.always_inline, transform, .{arg_0}),
+                    arg_1,
+                    arg_2,
+                    arg_3,
+                    arg_4,
+                    arg_5,
+                    arg_6,
+                );
+            }
+        },
+        8 => struct {
+            fn wrapper(
+                arg_0: method_info.params[0].type.?,
+                arg_1: method_info.params[1].type.?,
+                arg_2: method_info.params[2].type.?,
+                arg_3: method_info.params[3].type.?,
+                arg_4: method_info.params[4].type.?,
+                arg_5: method_info.params[5].type.?,
+                arg_6: method_info.params[6].type.?,
+                arg_7: method_info.params[7].type.?,
+            ) (method_info.return_type orelse void) {
+                return function(
+                    @call(.always_inline, transform, .{arg_0}),
+                    arg_1,
+                    arg_2,
+                    arg_3,
+                    arg_4,
+                    arg_5,
+                    arg_6,
+                    arg_7,
+                );
+            }
+        },
+        9 => struct {
+            fn wrapper(
+                arg_0: method_info.params[0].type.?,
+                arg_1: method_info.params[1].type.?,
+                arg_2: method_info.params[2].type.?,
+                arg_3: method_info.params[3].type.?,
+                arg_4: method_info.params[4].type.?,
+                arg_5: method_info.params[5].type.?,
+                arg_6: method_info.params[6].type.?,
+                arg_7: method_info.params[7].type.?,
+                arg_8: method_info.params[8].type.?,
+            ) (method_info.return_type orelse void) {
+                return function(
+                    @call(.always_inline, transform, .{arg_0}),
+                    arg_1,
+                    arg_2,
+                    arg_3,
+                    arg_4,
+                    arg_5,
+                    arg_6,
+                    arg_7,
+                    arg_8,
+                );
+            }
+        },
+        10 => struct {
+            fn wrapper(
+                arg_0: method_info.params[0].type.?,
+                arg_1: method_info.params[1].type.?,
+                arg_2: method_info.params[2].type.?,
+                arg_3: method_info.params[3].type.?,
+                arg_4: method_info.params[4].type.?,
+                arg_5: method_info.params[5].type.?,
+                arg_6: method_info.params[6].type.?,
+                arg_7: method_info.params[7].type.?,
+                arg_8: method_info.params[8].type.?,
+                arg_9: method_info.params[9].type.?,
+            ) (method_info.return_type orelse void) {
+                return function(
+                    @call(.always_inline, transform, .{arg_0}),
+                    arg_1,
+                    arg_2,
+                    arg_3,
+                    arg_4,
+                    arg_5,
+                    arg_6,
+                    arg_7,
+                    arg_8,
+                    arg_9,
+                );
+            }
+        },
+        11 => struct {
+            fn wrapper(
+                arg_0: method_info.params[0].type.?,
+                arg_1: method_info.params[1].type.?,
+                arg_2: method_info.params[2].type.?,
+                arg_3: method_info.params[3].type.?,
+                arg_4: method_info.params[4].type.?,
+                arg_5: method_info.params[5].type.?,
+                arg_6: method_info.params[6].type.?,
+                arg_7: method_info.params[7].type.?,
+                arg_8: method_info.params[8].type.?,
+                arg_9: method_info.params[9].type.?,
+                arg_10: method_info.params[10].type.?,
+            ) (method_info.return_type orelse void) {
+                return function(
+                    @call(.always_inline, transform, .{arg_0}),
+                    arg_1,
+                    arg_2,
+                    arg_3,
+                    arg_4,
+                    arg_5,
+                    arg_6,
+                    arg_7,
+                    arg_8,
+                    arg_9,
+                    arg_10,
+                );
+            }
+        },
+        12 => struct {
+            fn wrapper(
+                arg_0: method_info.params[0].type.?,
+                arg_1: method_info.params[1].type.?,
+                arg_2: method_info.params[2].type.?,
+                arg_3: method_info.params[3].type.?,
+                arg_4: method_info.params[4].type.?,
+                arg_5: method_info.params[5].type.?,
+                arg_6: method_info.params[6].type.?,
+                arg_7: method_info.params[7].type.?,
+                arg_8: method_info.params[8].type.?,
+                arg_9: method_info.params[9].type.?,
+                arg_10: method_info.params[10].type.?,
+                arg_11: method_info.params[11].type.?,
+            ) (method_info.return_type orelse void) {
+                return function(
+                    @call(.always_inline, transform, .{arg_0}),
+                    arg_1,
+                    arg_2,
+                    arg_3,
+                    arg_4,
+                    arg_5,
+                    arg_6,
+                    arg_7,
+                    arg_8,
+                    arg_9,
+                    arg_10,
+                    arg_11,
+                );
+            }
+        },
+        13 => struct {
+            fn wrapper(
+                arg_0: method_info.params[0].type.?,
+                arg_1: method_info.params[1].type.?,
+                arg_2: method_info.params[2].type.?,
+                arg_3: method_info.params[3].type.?,
+                arg_4: method_info.params[4].type.?,
+                arg_5: method_info.params[5].type.?,
+                arg_6: method_info.params[6].type.?,
+                arg_7: method_info.params[7].type.?,
+                arg_8: method_info.params[8].type.?,
+                arg_9: method_info.params[9].type.?,
+                arg_10: method_info.params[10].type.?,
+                arg_11: method_info.params[11].type.?,
+                arg_12: method_info.params[12].type.?,
+            ) (method_info.return_type orelse void) {
+                return function(
+                    @call(.always_inline, transform, .{arg_0}),
+                    arg_1,
+                    arg_2,
+                    arg_3,
+                    arg_4,
+                    arg_5,
+                    arg_6,
+                    arg_7,
+                    arg_8,
+                    arg_9,
+                    arg_10,
+                    arg_11,
+                    arg_12,
+                );
+            }
+        },
+        14 => struct {
+            fn wrapper(
+                arg_0: method_info.params[0].type.?,
+                arg_1: method_info.params[1].type.?,
+                arg_2: method_info.params[2].type.?,
+                arg_3: method_info.params[3].type.?,
+                arg_4: method_info.params[4].type.?,
+                arg_5: method_info.params[5].type.?,
+                arg_6: method_info.params[6].type.?,
+                arg_7: method_info.params[7].type.?,
+                arg_8: method_info.params[8].type.?,
+                arg_9: method_info.params[9].type.?,
+                arg_10: method_info.params[10].type.?,
+                arg_11: method_info.params[11].type.?,
+                arg_12: method_info.params[12].type.?,
+                arg_13: method_info.params[13].type.?,
+            ) (method_info.return_type orelse void) {
+                return function(
+                    @call(.always_inline, transform, .{arg_0}),
+                    arg_1,
+                    arg_2,
+                    arg_3,
+                    arg_4,
+                    arg_5,
+                    arg_6,
+                    arg_7,
+                    arg_8,
+                    arg_9,
+                    arg_10,
+                    arg_11,
+                    arg_12,
+                    arg_13,
+                );
+            }
+        },
+        15 => struct {
+            fn wrapper(
+                arg_0: method_info.params[0].type.?,
+                arg_1: method_info.params[1].type.?,
+                arg_2: method_info.params[2].type.?,
+                arg_3: method_info.params[3].type.?,
+                arg_4: method_info.params[4].type.?,
+                arg_5: method_info.params[5].type.?,
+                arg_6: method_info.params[6].type.?,
+                arg_7: method_info.params[7].type.?,
+                arg_8: method_info.params[8].type.?,
+                arg_9: method_info.params[9].type.?,
+                arg_10: method_info.params[10].type.?,
+                arg_11: method_info.params[11].type.?,
+                arg_12: method_info.params[12].type.?,
+                arg_13: method_info.params[13].type.?,
+                arg_14: method_info.params[14].type.?,
+            ) (method_info.return_type orelse void) {
+                return function(
+                    @call(.always_inline, transform, .{arg_0}),
+                    arg_1,
+                    arg_2,
+                    arg_3,
+                    arg_4,
+                    arg_5,
+                    arg_6,
+                    arg_7,
+                    arg_8,
+                    arg_9,
+                    arg_10,
+                    arg_11,
+                    arg_12,
+                    arg_13,
+                    arg_14,
+                );
+            }
+        },
+        16 => struct {
+            fn wrapper(
+                arg_0: method_info.params[0].type.?,
+                arg_1: method_info.params[1].type.?,
+                arg_2: method_info.params[2].type.?,
+                arg_3: method_info.params[3].type.?,
+                arg_4: method_info.params[4].type.?,
+                arg_5: method_info.params[5].type.?,
+                arg_6: method_info.params[6].type.?,
+                arg_7: method_info.params[7].type.?,
+                arg_8: method_info.params[8].type.?,
+                arg_9: method_info.params[9].type.?,
+                arg_10: method_info.params[10].type.?,
+                arg_11: method_info.params[11].type.?,
+                arg_12: method_info.params[12].type.?,
+                arg_13: method_info.params[13].type.?,
+                arg_14: method_info.params[14].type.?,
+                arg_15: method_info.params[15].type.?,
+            ) (method_info.return_type orelse void) {
+                return function(
+                    @call(.always_inline, transform, .{arg_0}),
+                    arg_1,
+                    arg_2,
+                    arg_3,
+                    arg_4,
+                    arg_5,
+                    arg_6,
+                    arg_7,
+                    arg_8,
+                    arg_9,
+                    arg_10,
+                    arg_11,
+                    arg_12,
+                    arg_13,
+                    arg_14,
+                    arg_15,
+                );
+            }
+        },
+        else => @compileError(
+            std.fmt.comptimePrint(
+                \\ Wow, your method has more than 16 arguments ({} to be exact).
+                \\ 
+                \\ Unfortunately, Zig doesn't allow variadic functions, so we need to create a wrapper for any number of arguments.
+                \\ We decided that 16 arguments was more than enough.
+            ,
+                .{method_info.params.len},
+            ),
+        ),
+    }.wrapper;
 }
