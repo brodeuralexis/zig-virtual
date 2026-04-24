@@ -16,7 +16,7 @@ Run the following command to add the latest tagged release to your
 `build.zig.zon` file:
 
 ``` shell
-zig fetch --save git+https://github.com/brodeuralexis/zig-virtual#v1.1.0
+zig fetch --save git+https://github.com/brodeuralexis/zig-virtual#v1.2.0
 ```
 
 You can then modify your `build.zig` to import it like so:

@@ -1,6 +1,6 @@
 .{
     .name = .virtual,
-    .version = "1.1.0",
+    .version = "1.2.0",
     .dependencies = .{
         .inflection = .{
             .url = "git+https://github.com/brodeuralexis/zig-inflection?ref=v1.0.0#b409c97c3d89c149cb9be35236d22fd501405833",

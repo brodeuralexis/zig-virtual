@@ -2,6 +2,7 @@ const std = @import("std");
 const inflection = @import("inflection");
 
 const virtual = @import("virtual.zig");
+const meta = @import("meta.zig");
 
 /// Creates a compile-time known `VTable` wrapping a type `T`, with `kind`
 /// describing the kind of virtual table we are dealing with.
@@ -187,47 +188,22 @@ pub fn create(comptime VTable: type, comptime T: type, comptime kind: virtual.VT
             },
         };
 
-        const methods = std.meta.fields(VTable);
-
         const vtable = make_vtable: {
             var result: VTable = undefined;
 
-            for (methods) |method| {
-                if (MethodKind.extract(method)) |method_kind| {
-                    const Method = method_kind.toType();
-                    const function_name = inflection.toCase(.zig_function, method.name);
-                    const transform = if (method_kind.isConst()) transforms.constant else transforms.mutable;
+            for (meta.methods(VTable)) |method| {
+                const transform = if (method.is_const) transforms.constant else transforms.mutable;
 
-                    switch (method_kind) {
-                        .required => {
-                            @field(result, method.name) = wrap(
-                                Method,
-                                @field(T, function_name),
-                                transform,
-                            );
-                        },
-                        .optional => {
-                            if (@hasDecl(T, function_name)) {
-                                @field(result, method.name) = wrap(
-                                    Method,
-                                    @field(T, function_name),
-                                    transform,
-                                );
-                            } else {
-                                @field(result, method.name) = null;
-                            }
-                        },
-                    }
-                } else {
-                    @compileError(
-                        std.fmt.comptimePrint(
-                            \\ A vtable must only contain function pointers, got:                        
-                            \\   {s}: {},
-                        ,
-                            .{ method.name, method.type },
-                        ),
-                    );
+                if (method.is_optional and !@hasDecl(T, method.function_name)) {
+                    @field(result, method.vtable_name) = null;
+                    continue;
                 }
+
+                @field(result, method.vtable_name) = wrap(
+                    method.type,
+                    @field(T, method.function_name),
+                    transform,
+                );
             }
 
             break :make_vtable result;
@@ -371,57 +347,6 @@ test "vtable using field parent" {
         circle.shape.someSuperLongFunctionName(42, "Hello"),
     );
 }
-
-const MethodKind = union(enum) {
-    required: type,
-    optional: type,
-
-    fn toInfo(comptime method_kind: MethodKind) std.builtin.Type.Fn {
-        return switch (method_kind) {
-            inline else => |value| @typeInfo(value).@"fn",
-        };
-    }
-
-    fn toType(comptime method_kind: MethodKind) type {
-        return switch (method_kind) {
-            inline else => |value| value,
-        };
-    }
-
-    fn extract(comptime method: std.builtin.Type.StructField) ?MethodKind {
-        const method_info = @typeInfo(method.type);
-
-        return switch (method_info) {
-            .pointer => |pointer_info| MethodKind{ .required = doExtract(pointer_info) orelse return null },
-            .optional => |optional_info| switch (@typeInfo(optional_info.child)) {
-                .pointer => |pointer_info| MethodKind{ .optional = doExtract(pointer_info) orelse return null },
-                else => null,
-            },
-            else => null,
-        };
-    }
-
-    fn doExtract(comptime pointer_info: std.builtin.Type.Pointer) ?type {
-        if (!pointer_info.is_const) {
-            return null;
-        }
-
-        if (@typeInfo(pointer_info.child) != .@"fn") {
-            return null;
-        }
-
-        return pointer_info.child;
-    }
-
-    fn isConst(comptime method_kind: MethodKind) bool {
-        const method_info = method_kind.toInfo();
-
-        return method_info.params.len > 0 and
-            method_info.params[0].type != null and
-            @typeInfo(method_info.params[0].type.?) == .pointer and
-            @typeInfo(method_info.params[0].type.?).pointer.is_const;
-    }
-};
 
 fn wrap(comptime Method: type, comptime function: anytype, comptime transform: anytype) Method {
     const method_info = @typeInfo(Method).@"fn";

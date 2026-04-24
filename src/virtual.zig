@@ -17,6 +17,12 @@ pub const VTableKind = union(enum) {
 
 pub const create = @import("create.zig").create;
 
+pub const isVTable = @import("meta.zig").isVTable;
+pub const Method = @import("meta.zig").Method;
+pub const method = @import("meta.zig").method;
+pub const methods = @import("meta.zig").methods;
+
 test {
     _ = @import("create.zig");
+    _ = @import("meta.zig");
 }
